@@ -12,7 +12,6 @@ def main(mp4):
         mp4,
         "-vf",
         "fps=1/60",
-        "-s 320x240",
         "-f",
         "image2",
         "thumb_nails/tn-%03d.jpeg",
