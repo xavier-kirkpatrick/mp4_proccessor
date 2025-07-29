@@ -31,7 +31,7 @@ def main(event, context):
     bucket_name = event["Records"][0]["s3"]["bucket"]["name"]
     object_key = event["Records"][0]["s3"]["object"]["key"]
 
-    # Make sure the S3 object key suffix is .mp4 as this is what file type our code expects.
+    # Makes sure the S3 object key suffix is .mp4 as this is what file type our code expects.
     # This also prevents against an uncontrolled loop between S3 and Lambda when using the same bucket for DL and UL.
     # Dispite this, different buckets should be used as best practice
 
@@ -74,11 +74,19 @@ def main(event, context):
         print(error.stdout)
         return {"statusCode": 500, "body": "ffmpeg failed to process the file."}
 
-    # Error handling for uploading the thumb nails back to S3
+    upload_bucket = os.environ.get("S3_UPLOAD_BUCKET")
+
+    if not upload_bucket:
+        return {
+            "Status code": 404,
+            "Body": "Failed to locate S3 upload bucket Environ Var",
+        }
+
+    # Error handling for uploading the thumb nails back to the destination S3 bucket
     for each_file in glob.glob("/tmp/*.jpg"):
         try:
             filename = os.path.basename(each_file)
-            s3.upload_file(each_file, bucket_name, f"thumbnails/{filename}")
+            s3.upload_file(each_file, upload_bucket, f"thumbnails/{filename}")
         except Exception as error:
             print(f"Upload to S3 failed: {error}")
             return {"statusCode": 500, "body": "Upload to S3 failed"}
