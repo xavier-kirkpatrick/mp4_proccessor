@@ -10,15 +10,17 @@ sns = boto3.client("sns")
 # I was insidcated while reading some infomation about the /tmp storage that it doesn't empty out after usage.
 # I added this clean_out code to empty /tmp before and after our "main" function runs it's proccesses.
 def clean_out_tmp():
-    for file in glob.glob("/tmp/*.jpg"):
-        try:
-            os.remove(file)
-        except Exception as error:
-            print(f"Failed to remove {file} from /tmp: {error}")
+    tmp_files = glob.glob("/tmp/*.jpg") + glob.glob("/tmp/*.mp4")
 
-    for file in glob.glob("/tmp/*.mp4"):
+    if tmp_files:
+        print(f"Trying to delete {len(tmp_files)} file(s) from /TMP...")
+    else:
+        print("No files found to delete in /TMP")
+
+    for file in tmp_files:
         try:
             os.remove(file)
+            print(f"Deleted file: {file}")
         except Exception as error:
             print(f"Failed to remove {file} from /tmp: {error}")
 
@@ -41,8 +43,10 @@ def main(event, context):
     if not object_key.endswith(".mp4"):
         return {"statusCode": 200, "body": "Not an mp4 file."}
 
-    input_path = "/tmp/input.mp4"
-    output_path_pattern = "/tmp/thumb_%03d.jpg"
+    filename_without_ext = os.path.splitext(os.path.basename(object_key))[0]
+
+    input_path = f"/tmp/{filename_without_ext}.mp4"
+    output_path_pattern = f"/tmp/{filename_without_ext}_thumb_%03d.jpg"
 
     # Handling the object DL from S3
     try:
@@ -78,15 +82,46 @@ def main(event, context):
 
     if not upload_bucket:
         return {
-            "Status code": 404,
+            "statusCode": 404,
             "Body": "Failed to locate S3 upload bucket Environ Var",
         }
 
+    # Check for any stored thumbnails in /tmp
+
+    stored_thumbnails = glob.glob("/tmp/*.jpg")
+
+    # If there are no stored thumbnails, return a 404 error
+
+    if not stored_thumbnails:
+        print("No thumbnails found in /TMP after ffmpeg processing.")
+        return {"statusCode": 404, "body": "No thumbnails found to upload."}
+
+    print(
+        f"Found {len(stored_thumbnails)} thumbnail(s). Checking for empty jpeg files..."
+    )
+    valid_thumbnails = []
+
+    for file in stored_thumbnails:
+        if os.path.getsize(file) == 0:
+            print(f"File {file} is an empty thumbnail, deleting...")
+            os.remove(file)
+            print(f"Deleted empty thumbnail: {file}")
+        else:
+            valid_thumbnails.append(file)
+
+    if not valid_thumbnails:
+        return {
+            "statusCode": 404,
+            "body": "No valid thumbnails found after deleting empty files.",
+        }
+
     # Error handling for uploading the thumb nails back to the destination S3 bucket
-    for each_file in glob.glob("/tmp/*.jpg"):
+
+    for each_file in valid_thumbnails:
         try:
             filename = os.path.basename(each_file)
             s3.upload_file(each_file, upload_bucket, f"thumbnails/{filename}")
+            print("Thumb nail upload complete")
         except Exception as error:
             print(f"Upload to S3 failed: {error}")
             return {"statusCode": 500, "body": "Upload to S3 failed"}
@@ -97,7 +132,7 @@ def main(event, context):
 
     # Checks if eviron var value exists under the key: "SNS_TOPIC_ARN"
     if not topic_arn:
-        return {"Status code": 404, "Body": "Failed to locate SNS Environ Var"}
+        return {"statusCode": 404, "body": "Failed to locate SNS Environ Var"}
 
     # Handles error if puslish to SNS action fails.
     try:
